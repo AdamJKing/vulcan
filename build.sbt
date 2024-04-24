@@ -1,3 +1,5 @@
+import sbt.Test
+
 val avroVersion = "1.11.3"
 val catsVersion = "2.10.0"
 val disciplineScalaTestVersion = "2.2.0"
@@ -16,18 +18,20 @@ val scala212 = "2.12.18"
 val scala213 = "2.13.12"
 val scala3 = "3.3.1"
 
-lazy val vulcan = project
+lazy val vulcan = projectMatrix
   .in(file("."))
   .settings(
     mimaSettings(),
     scalaSettings,
     noPublishSettings,
-    console := (core / Compile / console).value,
-    Test / console := (core / Test / console).value
+    console := (core.jvm(scala213) / Compile / console).value,
+    Test / console := (core.jvm(scala213) / Test / console).value
   )
   .aggregate(core, enumeratum, generic, refined)
 
-lazy val core = project
+lazy val core = projectMatrix
+  .jvmPlatform(scalaVersions = Seq(scala213, scala212, scala3))
+  .jsPlatform(scalaVersions = Seq(scala213, scala212, scala3))
   .in(file("modules/core"))
   .settings(
     moduleName := "vulcan",
@@ -52,8 +56,10 @@ lazy val core = project
     testSettings
   )
 
-lazy val enumeratum = project
+lazy val enumeratum = projectMatrix
   .in(file("modules/enumeratum"))
+  .jvmPlatform(scalaVersions = Seq(scala213, scala212, scala3))
+  .jsPlatform(scalaVersions = Seq(scala213, scala212, scala3))
   .settings(
     moduleName := "vulcan-enumeratum",
     name := moduleName.value,
@@ -68,8 +74,10 @@ lazy val enumeratum = project
   )
   .dependsOn(core, generic)
 
-lazy val generic = project
+lazy val generic = projectMatrix
   .in(file("modules/generic"))
+  .jvmPlatform(scalaVersions = Seq(scala213, scala212, scala3))
+  .jsPlatform(scalaVersions = Seq(scala213, scala212, scala3))
   .settings(
     moduleName := "vulcan-generic",
     name := moduleName.value,
@@ -98,7 +106,7 @@ lazy val generic = project
   )
   .dependsOn(core % "compile->compile;test->test")
 
-lazy val refined = project
+lazy val refined = projectMatrix
   .in(file("modules/refined"))
   .settings(
     moduleName := "vulcan-refined",
@@ -121,7 +129,7 @@ lazy val refined = project
   )
   .dependsOn(core)
 
-lazy val docs = project
+lazy val docs = projectMatrix
   .in(file("docs"))
   .settings(
     moduleName := "vulcan-docs",
@@ -132,6 +140,7 @@ lazy val docs = project
     mdocSettings,
     buildInfoSettings
   )
+  .defaultAxes(VirtualAxis.jvm)
   .dependsOn(core, enumeratum, generic, refined)
   .enablePlugins(BuildInfoPlugin, DocusaurusPlugin, MdocPlugin, ScalaUnidocPlugin)
 
@@ -180,7 +189,9 @@ lazy val mdocSettings = Seq(
   mdoc := (Compile / run).evaluated,
   scalacOptions --= Seq("-Xfatal-warnings", "-Ywarn-unused"),
   crossScalaVersions := Seq(scalaVersion.value),
-  ScalaUnidoc / unidoc / unidocProjectFilter := inProjects(core, enumeratum, generic, refined),
+  ScalaUnidoc / unidoc / unidocProjectFilter := inProjects(
+    Seq(core, enumeratum, generic, refined).flatMap(_.projectRefs) *
+  ),
   ScalaUnidoc / unidoc / target := (LocalRootProject / baseDirectory).value / "website" / "static" / "api",
   cleanFiles += (ScalaUnidoc / unidoc / target).value,
   docusaurusCreateSite := docusaurusCreateSite
@@ -217,32 +228,32 @@ lazy val buildInfoSettings = Seq(
       BuildInfoKey.map(ThisBuild / version) {
         case (_, v) => "latestSnapshotVersion" -> v
       },
-      BuildInfoKey.map(core / moduleName) {
+      BuildInfoKey.map(core.jvm(scalaVersion.value) / moduleName) {
         case (k, v) => "core" ++ k.capitalize -> v
       },
-      BuildInfoKey.map(core / crossScalaVersions) {
+      BuildInfoKey.map(core.jvm(scalaVersion.value) / crossScalaVersions) {
         case (k, v) => "core" ++ k.capitalize -> v
       },
-      BuildInfoKey.map(enumeratum / moduleName) {
+      BuildInfoKey.map(enumeratum.jvm(scalaVersion.value) / moduleName) {
         case (k, v) => "enumeratum" ++ k.capitalize -> v
       },
-      BuildInfoKey.map(enumeratum / crossScalaVersions) {
+      BuildInfoKey.map(enumeratum.jvm(scalaVersion.value) / crossScalaVersions) {
         case (k, v) => "enumeratum" ++ k.capitalize -> v
       },
-      BuildInfoKey.map(generic / moduleName) {
+      BuildInfoKey.map(generic.jvm(scalaVersion.value) / moduleName) {
         case (k, v) => "generic" ++ k.capitalize -> v
       },
-      BuildInfoKey.map(generic / crossScalaVersions) {
+      BuildInfoKey.map(generic.jvm(scalaVersion.value) / crossScalaVersions) {
         case (k, v) => "generic" ++ k.capitalize -> v
       },
-      BuildInfoKey.map(refined / moduleName) {
+      BuildInfoKey.map(refined.jvm(scalaVersion.value) / moduleName) {
         case (k, v) => "refined" ++ k.capitalize -> v
       },
-      BuildInfoKey.map(refined / crossScalaVersions) {
+      BuildInfoKey.map(refined.jvm(scalaVersion.value) / crossScalaVersions) {
         case (k, v) => "refined" ++ k.capitalize -> v
       },
       LocalRootProject / organization,
-      core / crossScalaVersions,
+      core.jvm(scalaVersion.value) / crossScalaVersions,
       BuildInfoKey("avroVersion" -> avroVersion),
       BuildInfoKey("catsVersion" -> catsVersion),
       BuildInfoKey("enumeratumVersion" -> enumeratumVersion),
@@ -421,10 +432,11 @@ ThisBuild / updateSiteVariables := {
   val variables =
     Map[String, String](
       "organization" -> (LocalRootProject / organization).value,
-      "coreModuleName" -> (core / moduleName).value,
+      "coreModuleName" -> (core.jvm(scala213) / moduleName).value,
       "latestVersion" -> (ThisBuild / latestVersion).value,
       "scalaPublishVersions" -> {
-        val scalaVersions = (core / crossScalaVersions).value.map(scalaVersionOf)
+        val scalaVersions =
+          (core.jvm(scala213) / crossScalaVersions).value.map(scalaVersionOf)
         if (scalaVersions.size <= 2) scalaVersions.mkString(" and ")
         else scalaVersions.init.mkString(", ") ++ " and " ++ scalaVersions.last
       }
